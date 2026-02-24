@@ -1,0 +1,7 @@
+{
+  "name": "CloudCoffee AI Manager",
+  "description": "Demonstração de gestão de cafeteria inteligente com Visão Computacional, Sustentabilidade e Dashboard Conversacional integrado ao Gemini.",
+  "requestFramePermissions": [
+    "camera"
+  ]
+}
