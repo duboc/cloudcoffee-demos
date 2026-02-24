@@ -72,7 +72,7 @@ The frontend runs at **http://localhost:3000** and proxies `/api/*` requests to 
 | Variable | Required | Default | Description |
 |----------|----------|---------|-------------|
 | `GOOGLE_CLOUD_PROJECT` | Yes | — | Google Cloud project ID |
-| `GOOGLE_CLOUD_LOCATION` | No | `us-central1` | Vertex AI region |
+| `GOOGLE_CLOUD_LOCATION` | No | `global` | Gemini API location |
 | `PORT` | No | `3001` | Express server port |
 
 Set variables in a `.env` file at the project root. See [`.env.example`](.env.example).

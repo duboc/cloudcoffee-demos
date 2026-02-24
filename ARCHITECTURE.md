@@ -39,7 +39,7 @@ All Vertex AI interactions. Initializes the `@google/genai` SDK with `vertexai: 
 const ai = new GoogleGenAI({
   vertexai: true,
   project: process.env.GOOGLE_CLOUD_PROJECT,
-  location: process.env.GOOGLE_CLOUD_LOCATION || 'us-central1',
+  location: process.env.GOOGLE_CLOUD_LOCATION || 'global',
 });
 ```
 

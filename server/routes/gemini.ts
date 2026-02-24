@@ -12,7 +12,7 @@ const router = Router();
 const ai = new GoogleGenAI({
   vertexai: true,
   project: process.env.GOOGLE_CLOUD_PROJECT || '',
-  location: process.env.GOOGLE_CLOUD_LOCATION || 'us-central1',
+  location: process.env.GOOGLE_CLOUD_LOCATION || 'global',
 });
 
 const textModel = 'gemini-2.5-flash';
