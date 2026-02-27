@@ -31,7 +31,9 @@ import {
   Save,
   Plus,
   BarChart3,
-  Trash2
+  Trash2,
+  Sunrise,
+  Star
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { cn } from './lib/utils';
@@ -41,12 +43,16 @@ import {
   generateVisionExample,
   analyzeImage,
   getDashboardInsights,
+  getDailyBriefing,
+  analyzeFeedback,
   loadAllData,
   saveGeneratedImage,
   saveVisionAnalysis,
   saveChatSession,
   saveSustainabilityReport,
   saveDashboardSnapshot,
+  saveDailyBriefing,
+  saveFeedbackAnalysis,
   deleteEntry,
   getUserErrorMessage,
 } from './services/gemini';
@@ -60,13 +66,20 @@ import type {
   SustainabilityReport,
   DashboardSnapshot,
   DashboardInsight,
+  BriefingActionItem,
+  DailyBriefing,
+  FeedbackReview,
+  FeedbackSentiment,
+  FeedbackCategory,
+  FeedbackImprovement,
+  FeedbackAnalysis,
 } from './services/gemini';
 import Markdown from 'react-markdown';
 import { ChartGrid } from './components/GeminiChart';
 import HistoryPanel from './components/HistoryPanel';
 
 // Types
-type View = 'dashboard' | 'vision' | 'sustainability' | 'chat';
+type View = 'dashboard' | 'vision' | 'sustainability' | 'chat' | 'briefing' | 'feedback';
 
 interface Alert {
   id: string;
@@ -94,6 +107,8 @@ const emptyStore: StoreData = {
   chatSessions: [],
   sustainabilityReports: [],
   dashboardSnapshots: [],
+  dailyBriefings: [],
+  feedbackAnalyses: [],
 };
 
 export default function App() {
@@ -173,6 +188,20 @@ export default function App() {
             collapsed={!isSidebarOpen}
             onClick={() => setActiveView('chat')}
           />
+          <NavItem
+            icon={<Sunrise size={20} />}
+            label="Briefing do Dia"
+            active={activeView === 'briefing'}
+            collapsed={!isSidebarOpen}
+            onClick={() => setActiveView('briefing')}
+          />
+          <NavItem
+            icon={<Star size={20} />}
+            label="Voz do Cliente"
+            active={activeView === 'feedback'}
+            collapsed={!isSidebarOpen}
+            onClick={() => setActiveView('feedback')}
+          />
         </nav>
 
         <div className="p-4 border-t border-[#dadce0]">
@@ -229,6 +258,8 @@ export default function App() {
             {activeView === 'vision' && <VisionView key="vision" storeData={storeData} refreshStore={refreshStore} />}
             {activeView === 'sustainability' && <SustainabilityView key="sustainability" storeData={storeData} refreshStore={refreshStore} />}
             {activeView === 'chat' && <ChatView key="chat" storeData={storeData} refreshStore={refreshStore} />}
+            {activeView === 'briefing' && <BriefingView key="briefing" storeData={storeData} refreshStore={refreshStore} />}
+            {activeView === 'feedback' && <FeedbackView key="feedback" storeData={storeData} refreshStore={refreshStore} />}
           </AnimatePresence>
         </div>
       </main>
@@ -533,39 +564,19 @@ function VisionView({ storeData, refreshStore }: ViewProps) {
     setAnalysisResult(null);
     setError(null);
     try {
-      const prompts = [
-        cameras[activeCamera].prompt + " variation 1",
-        cameras[activeCamera].prompt + " variation 2",
-        cameras[activeCamera].prompt + " variation 3"
-      ];
-
-      const results = await Promise.allSettled(
-        prompts.map(p => generateVisionExample(p))
-      );
-
-      const validResults = results
-        .filter((r): r is PromiseFulfilledResult<string | null> => r.status === 'fulfilled' && r.value !== null)
-        .map(r => r.value as string);
-
-      // Check if all failed
-      const failures = results.filter(r => r.status === 'rejected');
-      if (validResults.length === 0 && failures.length > 0) {
-        setError(getUserErrorMessage((failures[0] as PromiseRejectedResult).reason));
+      const image = await generateVisionExample(cameras[activeCamera].prompt);
+      if (!image) {
+        setError('Nenhuma imagem foi gerada. Tente novamente.');
         return;
       }
 
-      if (validResults.length > 0) {
-        // Auto-save each generated image to disk
-        const cameraName = cameras[activeCamera].name;
-        await Promise.allSettled(
-          validResults.map(img => saveGeneratedImage({ cameraName, imageData: img }))
-        );
-        await refreshStore();
+      // Auto-save generated image to disk
+      const cameraName = cameras[activeCamera].name;
+      await saveGeneratedImage({ cameraName, imageData: image });
+      await refreshStore();
 
-        // Use the first generated image as the active one and analyze it
-        setMainImage(validResults[0]);
-        performAnalysis(validResults[0]);
-      }
+      // Set as active image (user can analyze separately)
+      setMainImage(image);
     } catch (err) {
       console.error(err);
       setError(getUserErrorMessage(err));
@@ -715,7 +726,7 @@ function VisionView({ storeData, refreshStore }: ViewProps) {
             className="flex items-center gap-2 px-4 py-2 bg-[#1a73e8] text-white rounded hover:shadow-md disabled:opacity-50 text-sm font-medium"
           >
             {loading ? <RefreshCw size={16} className="animate-spin" /> : <Sparkles size={16} />}
-            {loading ? "Gerando Opções..." : "Gerar Opções com Gemini"}
+            {loading ? "Gerando Imagem..." : "Gerar Imagem com Gemini"}
           </button>
         </div>
       </div>
@@ -806,7 +817,7 @@ function VisionView({ storeData, refreshStore }: ViewProps) {
               <div className="absolute inset-0 flex flex-col items-center justify-center text-white bg-black/80 z-20">
                 <RefreshCw size={48} className="animate-spin mb-4 text-[#4285f4]" />
                 <p className="text-lg font-medium">
-                  {loading ? "Gemini está criando as cenas..." : "Gemini está analisando a imagem..."}
+                  {loading ? "Gemini está criando a imagem..." : "Gemini está analisando a imagem..."}
                 </p>
                 <p className="text-sm text-gray-400 mt-2">Isso pode levar alguns segundos</p>
               </div>
@@ -860,7 +871,7 @@ function VisionView({ storeData, refreshStore }: ViewProps) {
                 <p className="text-sm text-[#5f6368] max-w-xs mx-auto mt-2">
                   {savedImagesForCamera.length > 0
                     ? 'Escolha uma imagem da galeria à esquerda ou gere novas opções com o Gemini.'
-                    : 'Faça o upload de uma imagem ou use o Gemini para gerar exemplos realistas de monitoramento.'
+                    : 'Faça o upload de uma imagem ou use o Gemini para gerar uma imagem realista de monitoramento.'
                   }
                 </p>
               </div>
@@ -868,6 +879,15 @@ function VisionView({ storeData, refreshStore }: ViewProps) {
 
             {mainImage && (
               <div className="absolute bottom-4 left-4 flex gap-2">
+                {!analysisResult && !analyzing && (
+                  <button
+                    onClick={() => performAnalysis(mainImage)}
+                    className="flex items-center gap-2 px-3 py-2 bg-[#1a73e8]/90 hover:bg-[#1a73e8] rounded text-white text-sm font-medium backdrop-blur-sm"
+                  >
+                    <Sparkles size={14} />
+                    Analisar com Gemini
+                  </button>
+                )}
                 <button className="p-2 bg-black/40 hover:bg-black/60 rounded text-white backdrop-blur-sm">
                   <Maximize2 size={16} />
                 </button>
@@ -1101,7 +1121,7 @@ function SustainabilityView({ storeData, refreshStore }: ViewProps) {
 
 function ChatView({ storeData, refreshStore }: ViewProps) {
   const [messages, setMessages] = useState<ChatMessage[]>([
-    { role: 'assistant', content: 'Olá! Sou o assistente inteligente da CloudCoffee. Como posso ajudar na gestão da sua loja hoje?' }
+    { role: 'assistant', content: 'Olá! Sou o assistente operacional da CloudCoffee. Posso ajudar com:\n\n- **Rascunhos de e-mail** para fornecedores, equipe ou matriz\n- **Listas e checklists** de tarefas, compras ou abertura/fechamento\n- **Planos operacionais** para eventos, promoções ou melhorias\n- **Análise de dados** com gráficos de vendas, estoque e fluxo\n- **Comunicados** para a equipe\n- **Briefing do turno** com resumo do dia\n\nComo posso ajudar na operação hoje?' }
   ]);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
@@ -1127,10 +1147,17 @@ function ChatView({ storeData, refreshStore }: ViewProps) {
 
     try {
       const context = {
-        vendas: "R$ 4.250,00",
-        clima: "18°C (Nublado)",
-        fila: "5 pessoas",
-        estoque: "Pão de queijo baixo"
+        vendas: "R$ 4.250,00 hoje (meta: R$ 5.000)",
+        ticketMedio: "R$ 18,50",
+        clientes: "142 atendidos, 5 na fila agora",
+        clima: "18°C, nublado, previsão de chuva à tarde",
+        estoque: { paoDeQueijo: "2 unidades (crítico)", café: "5kg", leite: "12L", açaí: "3kg" },
+        equipe: "3 baristas, 1 caixa, 1 gerente no turno",
+        horarioPico: "11h30-13h30",
+        fornecedores: { padaria: "Padaria São José", café: "Café Especial Ltda", descartáveis: "EcoPack" },
+        consumo: { energia: "12.4 kWh (meta: 15 kWh)", agua: "185L (meta: 150L)" },
+        ultimaReposicao: "Ontem às 14h",
+        promocaoAtiva: "Combo café + pão de queijo R$ 12,90"
       };
       const result = await getStoreInsights(userMsg, context);
       const assistantMessage: ChatMessage = {
@@ -1163,7 +1190,7 @@ function ChatView({ storeData, refreshStore }: ViewProps) {
     setSessionId(newId);
     setSelectedSessionId(undefined);
     setMessages([
-      { role: 'assistant', content: 'Olá! Sou o assistente inteligente da CloudCoffee. Como posso ajudar na gestão da sua loja hoje?' }
+      { role: 'assistant', content: 'Olá! Sou o assistente operacional da CloudCoffee. Posso ajudar com:\n\n- **Rascunhos de e-mail** para fornecedores, equipe ou matriz\n- **Listas e checklists** de tarefas, compras ou abertura/fechamento\n- **Planos operacionais** para eventos, promoções ou melhorias\n- **Análise de dados** com gráficos de vendas, estoque e fluxo\n- **Comunicados** para a equipe\n- **Briefing do turno** com resumo do dia\n\nComo posso ajudar na operação hoje?' }
     ]);
   };
 
@@ -1313,7 +1340,7 @@ function ChatView({ storeData, refreshStore }: ViewProps) {
               value={input}
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={(e) => e.key === 'Enter' && handleSend()}
-              placeholder="Pergunte sobre vendas, estoque ou clima..."
+              placeholder="Ex: Escreva um e-mail para o fornecedor, monte o checklist de abertura..."
               className="flex-1 bg-transparent border-none outline-none text-sm py-1"
             />
             <button
@@ -1327,6 +1354,532 @@ function ChatView({ storeData, refreshStore }: ViewProps) {
           <p className="text-[10px] text-center text-[#70757a] mt-2">
             O Gemini pode cometer erros. Verifique informações importantes.
           </p>
+        </div>
+      </div>
+    </motion.div>
+  );
+}
+
+// ─── Briefing View ──────────────────────────────────────────────
+
+function BriefingView({ storeData, refreshStore }: ViewProps) {
+  const [loading, setLoading] = useState(false);
+  const [briefingText, setBriefingText] = useState('');
+  const [actionItems, setActionItems] = useState<BriefingActionItem[]>([]);
+  const [weatherSummary, setWeatherSummary] = useState('');
+  const [revenueTarget, setRevenueTarget] = useState('');
+  const [charts, setCharts] = useState<ChartSpec[]>([]);
+  const [selectedHistoryId, setSelectedHistoryId] = useState<string | undefined>();
+  const [error, setError] = useState<string | null>(null);
+
+  // Load last briefing on mount
+  useEffect(() => {
+    if (storeData.dailyBriefings.length > 0) {
+      const last = storeData.dailyBriefings[0];
+      setBriefingText(last.text || '');
+      setActionItems(last.actionItems || []);
+      setWeatherSummary(last.weatherSummary || '');
+      setRevenueTarget(last.revenueTarget || '');
+      setCharts(last.charts || []);
+      setSelectedHistoryId(last.id);
+    }
+  }, [storeData.dailyBriefings]);
+
+  const handleGenerate = async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const context = {
+        data: new Date().toLocaleDateString('pt-BR', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' }),
+        clima: '22°C, parcialmente nublado, previsão de chuva leve à tarde',
+        vendasOntem: { total: 'R$ 4.850,00', meta: 'R$ 5.000,00', atingimento: '97%' },
+        estoque: [
+          { item: 'Pão de Queijo', quantidade: 8, status: 'baixo' },
+          { item: 'Café Especial (kg)', quantidade: 2, status: 'critico' },
+          { item: 'Leite (L)', quantidade: 15, status: 'ok' },
+          { item: 'Açaí (kg)', quantidade: 1, status: 'critico' },
+          { item: 'Copos descartáveis', quantidade: 200, status: 'ok' },
+          { item: 'Açúcar (kg)', quantidade: 3, status: 'baixo' },
+        ],
+        equipe: {
+          manha: ['Ana (barista)', 'Carlos (caixa)', 'Maria (atendimento)'],
+          tarde: ['João (barista)', 'Pedro (caixa)'],
+          ausencias: ['Fernanda (atestado médico)'],
+        },
+        horariosPico: ['07:30-09:00', '11:30-13:30', '15:00-16:30'],
+        promocaoAtiva: 'Combo café + pão de queijo R$ 12,90',
+        manutencao: 'Máquina de espresso #2 precisa de descalcificação',
+        metaReceita: 'R$ 5.200,00',
+      };
+
+      const result = await getDailyBriefing(context);
+      setBriefingText(result.text || '');
+      setActionItems(result.actionItems || []);
+      setWeatherSummary(result.weatherSummary || '');
+      setRevenueTarget(result.revenueTarget || '');
+      setCharts(result.charts || []);
+
+      // Auto-save
+      await saveDailyBriefing({
+        text: result.text || '',
+        actionItems: result.actionItems || [],
+        weatherSummary: result.weatherSummary || '',
+        revenueTarget: result.revenueTarget || '',
+        charts: result.charts || [],
+      });
+      await refreshStore();
+    } catch (err) {
+      console.error(err);
+      setError(getUserErrorMessage(err));
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleLoadSaved = (id: string) => {
+    const saved = storeData.dailyBriefings.find(b => b.id === id);
+    if (!saved) return;
+    setBriefingText(saved.text || '');
+    setActionItems(saved.actionItems || []);
+    setWeatherSummary(saved.weatherSummary || '');
+    setRevenueTarget(saved.revenueTarget || '');
+    setCharts(saved.charts || []);
+    setSelectedHistoryId(id);
+  };
+
+  const handleDeleteSaved = async (id: string) => {
+    try {
+      await deleteEntry('briefing', id);
+      await refreshStore();
+      if (selectedHistoryId === id) {
+        setBriefingText('');
+        setActionItems([]);
+        setWeatherSummary('');
+        setRevenueTarget('');
+        setCharts([]);
+        setSelectedHistoryId(undefined);
+      }
+    } catch (err) {
+      console.error('Failed to delete:', err);
+      setError(getUserErrorMessage(err));
+    }
+  };
+
+  const historyItems = storeData.dailyBriefings.map(b => ({
+    id: b.id,
+    title: 'Briefing do Dia',
+    subtitle: b.text ? b.text.slice(0, 50) + '...' : 'Briefing salvo',
+    timestamp: b.timestamp,
+  }));
+
+  const priorityColors: Record<string, { bg: string; border: string; text: string; badge: string }> = {
+    urgente: { bg: 'bg-red-50', border: 'border-l-red-500', text: 'text-red-700', badge: 'bg-red-100 text-red-700' },
+    importante: { bg: 'bg-orange-50', border: 'border-l-orange-500', text: 'text-orange-700', badge: 'bg-orange-100 text-orange-700' },
+    rotina: { bg: 'bg-blue-50', border: 'border-l-blue-500', text: 'text-blue-700', badge: 'bg-blue-100 text-blue-700' },
+  };
+
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 20 }}
+      animate={{ opacity: 1, y: 0 }}
+      exit={{ opacity: 0, y: -20 }}
+      className="space-y-6"
+    >
+      <div className="flex items-center justify-between">
+        <h1 className="text-2xl font-normal text-[#202124]">Briefing do Dia</h1>
+        <button
+          onClick={handleGenerate}
+          disabled={loading}
+          className="flex items-center gap-2 px-4 py-2 bg-[#1a73e8] text-white rounded hover:shadow-md disabled:opacity-50 text-sm font-medium"
+        >
+          {loading ? <RefreshCw size={16} className="animate-spin" /> : <Sunrise size={16} />}
+          {loading ? 'Gerando Briefing...' : 'Gerar Briefing'}
+        </button>
+      </div>
+
+      {error && <ErrorBanner message={error} onDismiss={() => setError(null)} />}
+
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        {/* Left column */}
+        <div className="space-y-4">
+          {/* Weather card */}
+          <div className="bg-white p-4 border border-[#dadce0] rounded-lg shadow-sm">
+            <div className="flex items-center gap-2 mb-2">
+              <Sunrise size={18} className="text-orange-400" />
+              <h3 className="font-medium text-sm text-[#202124]">Clima & Operação</h3>
+            </div>
+            <p className="text-sm text-[#5f6368]">
+              {weatherSummary || '22°C, parcialmente nublado. Gere o briefing para ver o impacto na operação.'}
+            </p>
+          </div>
+
+          {/* Revenue card */}
+          <div className="bg-white p-4 border border-[#dadce0] rounded-lg shadow-sm">
+            <div className="flex items-center gap-2 mb-2">
+              <TrendingUp size={18} className="text-green-600" />
+              <h3 className="font-medium text-sm text-[#202124]">Meta de Receita</h3>
+            </div>
+            <p className="text-2xl font-bold text-[#202124]">{revenueTarget || 'R$ 5.200,00'}</p>
+            <p className="text-xs text-[#5f6368] mt-1">Ontem: R$ 4.850,00 (97% da meta)</p>
+          </div>
+
+          {/* Action Items */}
+          {actionItems.length > 0 && (
+            <div className="bg-white border border-[#dadce0] rounded-lg shadow-sm overflow-hidden">
+              <div className="px-4 py-3 border-b border-[#dadce0] bg-[#f8f9fa]">
+                <h3 className="font-medium text-sm text-[#202124]">Itens de Ação ({actionItems.length})</h3>
+              </div>
+              <div className="divide-y divide-[#f1f3f4] max-h-[400px] overflow-y-auto">
+                {actionItems.map((item, i) => {
+                  const colors = priorityColors[item.priority] || priorityColors.rotina;
+                  return (
+                    <div key={i} className={cn('p-3 border-l-4', colors.bg, colors.border)}>
+                      <div className="flex items-center gap-2 mb-1">
+                        <span className={cn('text-[10px] font-bold uppercase px-1.5 py-0.5 rounded', colors.badge)}>
+                          {item.priority}
+                        </span>
+                        <span className="text-[10px] text-[#5f6368] uppercase tracking-wider">{item.category}</span>
+                      </div>
+                      <p className="text-sm text-[#3c4043]">{item.description}</p>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
+          <HistoryPanel
+            title="Briefings Anteriores"
+            items={historyItems}
+            selectedId={selectedHistoryId}
+            onSelect={handleLoadSaved}
+            onDelete={handleDeleteSaved}
+          />
+        </div>
+
+        {/* Right column: report + charts */}
+        <div className="lg:col-span-2 space-y-4">
+          <div className="bg-white border border-[#dadce0] rounded-lg overflow-hidden shadow-sm flex flex-col">
+            <div className="px-4 py-3 border-b border-[#dadce0] bg-[#f8f9fa] flex items-center gap-2">
+              <SparklesIcon size={18} className="text-[#4285f4]" />
+              <h2 className="font-medium text-[#202124]">Briefing Gerado pelo Gemini</h2>
+            </div>
+            <div className="p-6 flex-1 overflow-y-auto">
+              {loading ? (
+                <div className="flex items-center justify-center gap-3 py-12 text-[#5f6368]">
+                  <RefreshCw size={20} className="animate-spin text-[#4285f4]" />
+                  <span className="text-sm">Gemini está preparando o briefing matinal...</span>
+                </div>
+              ) : briefingText ? (
+                <div className="prose prose-sm max-w-none text-[#3c4043]">
+                  <Markdown>{briefingText}</Markdown>
+                </div>
+              ) : (
+                <div className="h-full flex flex-col items-center justify-center text-center text-[#5f6368] space-y-4 py-12">
+                  <div className="p-4 bg-[#f1f3f4] rounded-full">
+                    <Sunrise size={48} className="text-[#dadce0]" />
+                  </div>
+                  <p className="max-w-xs">Clique em "Gerar Briefing" para que a IA prepare o resumo operacional do dia com ações prioritárias.</p>
+                </div>
+              )}
+            </div>
+          </div>
+
+          <ChartGrid charts={charts} />
+        </div>
+      </div>
+    </motion.div>
+  );
+}
+
+// ─── Feedback View ──────────────────────────────────────────────
+
+const mockReviews: FeedbackReview[] = [
+  { id: 'r1', author: 'Maria S.', rating: 5, text: 'Melhor café da cidade! O atendimento é sempre impecável e o ambiente é super aconchegante. Volto sempre!', date: '2025-01-15' },
+  { id: 'r2', author: 'João P.', rating: 4, text: 'Café muito bom e pão de queijo delicioso. Só acho que o preço poderia ser um pouco mais acessível.', date: '2025-01-14' },
+  { id: 'r3', author: 'Ana L.', rating: 2, text: 'Esperei 20 minutos na fila para ser atendida. O café até é bom, mas o tempo de espera é inaceitável.', date: '2025-01-13' },
+  { id: 'r4', author: 'Carlos R.', rating: 5, text: 'Ambiente perfeito para trabalhar! WiFi rápido, tomadas em todas as mesas e o café espresso é sensacional.', date: '2025-01-12' },
+  { id: 'r5', author: 'Fernanda M.', rating: 3, text: 'O café é ok, nada excepcional. O ambiente é bonito mas as cadeiras são desconfortáveis para ficar muito tempo.', date: '2025-01-11' },
+  { id: 'r6', author: 'Ricardo T.', rating: 1, text: 'Péssimo atendimento. O barista foi grosseiro e errou meu pedido duas vezes. Não volto mais.', date: '2025-01-10' },
+  { id: 'r7', author: 'Patrícia G.', rating: 4, text: 'Adoro o combo café + pão de queijo! Ótimo custo-benefício. A equipe da manhã é sempre muito simpática.', date: '2025-01-09' },
+  { id: 'r8', author: 'Lucas B.', rating: 5, text: 'Cafeteria com conceito sustentável incrível! Os copos biodegradáveis e a decoração com plantas são um diferencial.', date: '2025-01-08' },
+  { id: 'r9', author: 'Camila F.', rating: 3, text: 'O café gelado é bom mas achei caro demais. R$ 18 por um copo médio é puxado. O espaço é bonito pelo menos.', date: '2025-01-07' },
+  { id: 'r10', author: 'Roberto A.', rating: 4, text: 'Boa variedade de opções no cardápio. O açaí bowl é excelente! Só falta mais opções de comida salgada.', date: '2025-01-06' },
+];
+
+function FeedbackView({ storeData, refreshStore }: ViewProps) {
+  const [loading, setLoading] = useState(false);
+  const [analysisText, setAnalysisText] = useState('');
+  const [sentimentSummary, setSentimentSummary] = useState<FeedbackSentiment | null>(null);
+  const [categoryBreakdown, setCategoryBreakdown] = useState<FeedbackCategory[]>([]);
+  const [improvementPlan, setImprovementPlan] = useState<FeedbackImprovement[]>([]);
+  const [charts, setCharts] = useState<ChartSpec[]>([]);
+  const [selectedHistoryId, setSelectedHistoryId] = useState<string | undefined>();
+  const [error, setError] = useState<string | null>(null);
+
+  // Load last analysis on mount
+  useEffect(() => {
+    if (storeData.feedbackAnalyses.length > 0) {
+      const last = storeData.feedbackAnalyses[0];
+      setAnalysisText(last.text || '');
+      setSentimentSummary(last.sentimentSummary || null);
+      setCategoryBreakdown(last.categoryBreakdown || []);
+      setImprovementPlan(last.improvementPlan || []);
+      setCharts(last.charts || []);
+      setSelectedHistoryId(last.id);
+    }
+  }, [storeData.feedbackAnalyses]);
+
+  const handleAnalyze = async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const result = await analyzeFeedback(mockReviews);
+      setAnalysisText(result.text || '');
+      setSentimentSummary(result.sentimentSummary || null);
+      setCategoryBreakdown(result.categoryBreakdown || []);
+      setImprovementPlan(result.improvementPlan || []);
+      setCharts(result.charts || []);
+
+      // Auto-save
+      await saveFeedbackAnalysis({
+        reviewCount: mockReviews.length,
+        text: result.text || '',
+        sentimentSummary: result.sentimentSummary || { positive: 0, neutral: 0, negative: 0, averageRating: 0 },
+        categoryBreakdown: result.categoryBreakdown || [],
+        improvementPlan: result.improvementPlan || [],
+        charts: result.charts || [],
+      });
+      await refreshStore();
+    } catch (err) {
+      console.error(err);
+      setError(getUserErrorMessage(err));
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleLoadSaved = (id: string) => {
+    const saved = storeData.feedbackAnalyses.find(a => a.id === id);
+    if (!saved) return;
+    setAnalysisText(saved.text || '');
+    setSentimentSummary(saved.sentimentSummary || null);
+    setCategoryBreakdown(saved.categoryBreakdown || []);
+    setImprovementPlan(saved.improvementPlan || []);
+    setCharts(saved.charts || []);
+    setSelectedHistoryId(id);
+  };
+
+  const handleDeleteSaved = async (id: string) => {
+    try {
+      await deleteEntry('feedback', id);
+      await refreshStore();
+      if (selectedHistoryId === id) {
+        setAnalysisText('');
+        setSentimentSummary(null);
+        setCategoryBreakdown([]);
+        setImprovementPlan([]);
+        setCharts([]);
+        setSelectedHistoryId(undefined);
+      }
+    } catch (err) {
+      console.error('Failed to delete:', err);
+      setError(getUserErrorMessage(err));
+    }
+  };
+
+  const historyItems = storeData.feedbackAnalyses.map(a => ({
+    id: a.id,
+    title: `Análise de ${a.reviewCount || '?'} avaliações`,
+    subtitle: a.text ? a.text.slice(0, 50) + '...' : 'Análise salva',
+    timestamp: a.timestamp,
+  }));
+
+  const ratingColor = (rating: number) => {
+    if (rating >= 4) return 'border-l-green-500';
+    if (rating === 3) return 'border-l-yellow-500';
+    return 'border-l-red-500';
+  };
+
+  const renderStars = (rating: number) => {
+    return Array.from({ length: 5 }, (_, i) => (
+      <Star key={i} size={14} className={i < rating ? 'text-yellow-400 fill-yellow-400' : 'text-gray-300'} />
+    ));
+  };
+
+  const priorityBadge = (priority: string) => {
+    const colors: Record<string, string> = {
+      'Alta': 'bg-red-100 text-red-700',
+      'Média': 'bg-orange-100 text-orange-700',
+      'Baixa': 'bg-blue-100 text-blue-700',
+    };
+    return colors[priority] || 'bg-gray-100 text-gray-700';
+  };
+
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 20 }}
+      animate={{ opacity: 1, y: 0 }}
+      exit={{ opacity: 0, y: -20 }}
+      className="space-y-6"
+    >
+      <div className="flex items-center justify-between">
+        <h1 className="text-2xl font-normal text-[#202124]">Voz do Cliente</h1>
+        <button
+          onClick={handleAnalyze}
+          disabled={loading}
+          className="flex items-center gap-2 px-4 py-2 bg-[#1a73e8] text-white rounded hover:shadow-md disabled:opacity-50 text-sm font-medium"
+        >
+          {loading ? <RefreshCw size={16} className="animate-spin" /> : <Star size={16} />}
+          {loading ? 'Analisando...' : 'Analisar Feedback'}
+        </button>
+      </div>
+
+      {error && <ErrorBanner message={error} onDismiss={() => setError(null)} />}
+
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        {/* Left column: review cards + history */}
+        <div className="space-y-4">
+          <div className="bg-white border border-[#dadce0] rounded-lg shadow-sm overflow-hidden">
+            <div className="px-4 py-3 border-b border-[#dadce0] bg-[#f8f9fa]">
+              <h3 className="font-medium text-sm text-[#202124]">Avaliações do Google ({mockReviews.length})</h3>
+            </div>
+            <div className="divide-y divide-[#f1f3f4] max-h-[500px] overflow-y-auto">
+              {mockReviews.map(review => (
+                <div key={review.id} className={cn('p-3 border-l-4', ratingColor(review.rating))}>
+                  <div className="flex items-center justify-between mb-1">
+                    <span className="text-xs font-medium text-[#202124]">{review.author}</span>
+                    <span className="text-[10px] text-[#5f6368]">{review.date}</span>
+                  </div>
+                  <div className="flex items-center gap-0.5 mb-1.5">
+                    {renderStars(review.rating)}
+                  </div>
+                  <p className="text-xs text-[#5f6368] leading-relaxed">{review.text}</p>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <HistoryPanel
+            title="Análises Anteriores"
+            items={historyItems}
+            selectedId={selectedHistoryId}
+            onSelect={handleLoadSaved}
+            onDelete={handleDeleteSaved}
+          />
+        </div>
+
+        {/* Right column: analysis results */}
+        <div className="lg:col-span-2 space-y-4">
+          {/* Sentiment summary */}
+          {sentimentSummary && (
+            <div className="bg-white border border-[#dadce0] rounded-lg shadow-sm p-4">
+              <h3 className="font-medium text-sm text-[#202124] mb-3">Resumo de Sentimento</h3>
+              <div className="grid grid-cols-4 gap-3">
+                <div className="text-center p-3 bg-green-50 rounded-lg">
+                  <p className="text-2xl font-bold text-green-600">{sentimentSummary.positive}%</p>
+                  <p className="text-xs text-green-700 font-medium">Positivo</p>
+                </div>
+                <div className="text-center p-3 bg-gray-50 rounded-lg">
+                  <p className="text-2xl font-bold text-gray-600">{sentimentSummary.neutral}%</p>
+                  <p className="text-xs text-gray-700 font-medium">Neutro</p>
+                </div>
+                <div className="text-center p-3 bg-red-50 rounded-lg">
+                  <p className="text-2xl font-bold text-red-600">{sentimentSummary.negative}%</p>
+                  <p className="text-xs text-red-700 font-medium">Negativo</p>
+                </div>
+                <div className="text-center p-3 bg-yellow-50 rounded-lg">
+                  <div className="flex items-center justify-center gap-1">
+                    <p className="text-2xl font-bold text-yellow-600">{sentimentSummary.averageRating}</p>
+                    <Star size={16} className="text-yellow-400 fill-yellow-400" />
+                  </div>
+                  <p className="text-xs text-yellow-700 font-medium">Nota Média</p>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Category breakdown */}
+          {categoryBreakdown.length > 0 && (
+            <div className="bg-white border border-[#dadce0] rounded-lg shadow-sm p-4">
+              <h3 className="font-medium text-sm text-[#202124] mb-3">Categorias de Feedback</h3>
+              <div className="grid grid-cols-2 gap-2">
+                {categoryBreakdown.map((cat, i) => (
+                  <div key={i} className="flex items-center justify-between p-2 bg-[#f8f9fa] rounded">
+                    <div>
+                      <p className="text-sm font-medium text-[#202124]">{cat.category}</p>
+                      <p className="text-[10px] text-[#5f6368]">{cat.sentiment}</p>
+                    </div>
+                    <span className="text-xs font-bold text-[#1a73e8] bg-[#e8f0fe] px-2 py-0.5 rounded">{cat.mentions} menções</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Improvement plan */}
+          {improvementPlan.length > 0 && (
+            <div className="bg-white border border-[#dadce0] rounded-lg shadow-sm overflow-hidden">
+              <div className="px-4 py-3 border-b border-[#dadce0] bg-[#f8f9fa]">
+                <h3 className="font-medium text-sm text-[#202124]">Plano de Melhoria</h3>
+              </div>
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b border-[#dadce0]">
+                      <th className="text-left px-4 py-2 text-xs font-medium text-[#5f6368] uppercase">Área</th>
+                      <th className="text-left px-4 py-2 text-xs font-medium text-[#5f6368] uppercase">Ação</th>
+                      <th className="text-left px-4 py-2 text-xs font-medium text-[#5f6368] uppercase">Prioridade</th>
+                      <th className="text-left px-4 py-2 text-xs font-medium text-[#5f6368] uppercase">Impacto</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-[#f1f3f4]">
+                    {improvementPlan.map((item, i) => (
+                      <tr key={i} className="hover:bg-[#f8f9fa]">
+                        <td className="px-4 py-2 font-medium text-[#202124]">{item.area}</td>
+                        <td className="px-4 py-2 text-[#3c4043]">{item.action}</td>
+                        <td className="px-4 py-2">
+                          <span className={cn('text-[10px] font-bold uppercase px-1.5 py-0.5 rounded', priorityBadge(item.priority))}>
+                            {item.priority}
+                          </span>
+                        </td>
+                        <td className="px-4 py-2 text-[#5f6368]">{item.impact}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+
+          {/* Markdown report */}
+          <div className="bg-white border border-[#dadce0] rounded-lg overflow-hidden shadow-sm flex flex-col">
+            <div className="px-4 py-3 border-b border-[#dadce0] bg-[#f8f9fa] flex items-center gap-2">
+              <SparklesIcon size={18} className="text-[#4285f4]" />
+              <h2 className="font-medium text-[#202124]">Análise Detalhada pelo Gemini</h2>
+            </div>
+            <div className="p-6 flex-1 overflow-y-auto">
+              {loading ? (
+                <div className="flex items-center justify-center gap-3 py-12 text-[#5f6368]">
+                  <RefreshCw size={20} className="animate-spin text-[#4285f4]" />
+                  <span className="text-sm">Gemini está analisando as avaliações dos clientes...</span>
+                </div>
+              ) : analysisText ? (
+                <div className="prose prose-sm max-w-none text-[#3c4043]">
+                  <Markdown>{analysisText}</Markdown>
+                </div>
+              ) : (
+                <div className="h-full flex flex-col items-center justify-center text-center text-[#5f6368] space-y-4 py-12">
+                  <div className="p-4 bg-[#f1f3f4] rounded-full">
+                    <Star size={48} className="text-[#dadce0]" />
+                  </div>
+                  <p className="max-w-xs">Clique em "Analisar Feedback" para que a IA analise as avaliações dos clientes e gere um plano de melhoria.</p>
+                </div>
+              )}
+            </div>
+          </div>
+
+          <ChartGrid charts={charts} />
         </div>
       </div>
     </motion.div>

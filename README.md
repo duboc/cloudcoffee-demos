@@ -44,7 +44,7 @@ The frontend runs at **http://localhost:3000** and proxies `/api/*` requests to 
 | Styling | Tailwind CSS 4, Lucide icons, Motion (animations) |
 | Charts | Recharts (bar, line, pie, area) from Gemini-generated data |
 | Backend | Express 4 (API proxy to Vertex AI + file-based persistence) |
-| AI | Google Gemini via Vertex AI (`gemini-2.5-flash` for text, `gemini-2.0-flash-exp` for images) |
+| AI | Google Gemini via Vertex AI (`gemini-3-flash-preview` for text, `gemini-3.1-flash-image-preview` for images) |
 | Auth | Google Cloud Application Default Credentials (ADC) |
 | Persistence | Local JSON file (`data/store.json`) + image files (`data/images/`) |
 
@@ -117,11 +117,11 @@ cloudcoffee-demos/
 
 | Endpoint | Model | Purpose |
 |----------|-------|---------|
-| `POST /api/generate-image` | `gemini-2.0-flash-exp` | Generate synthetic camera images |
-| `POST /api/analyze-image` | `gemini-2.5-flash` | Object detection with bounding boxes, summary, and charts |
-| `POST /api/store-insights` | `gemini-2.5-flash` | Context-aware chat with optional charts |
-| `POST /api/sustainability-report` | `gemini-2.5-flash` | Sustainability report with charts |
-| `POST /api/dashboard-insights` | `gemini-2.5-flash` | Dynamic dashboard insights and charts |
+| `POST /api/generate-image` | `gemini-3.1-flash-image-preview` | Generate synthetic camera images |
+| `POST /api/analyze-image` | `gemini-3-flash-preview` | Object detection with bounding boxes, summary, and charts |
+| `POST /api/store-insights` | `gemini-3-flash-preview` | Context-aware chat with optional charts |
+| `POST /api/sustainability-report` | `gemini-3-flash-preview` | Sustainability report with charts |
+| `POST /api/dashboard-insights` | `gemini-3-flash-preview` | Dynamic dashboard insights and charts |
 
 All AI endpoints return structured JSON with `{ text, charts[] }` and classify errors (429 rate limit, 503 unavailable, 400 bad request, 401/403 auth) with user-friendly messages in Portuguese.
 

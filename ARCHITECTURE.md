@@ -45,10 +45,10 @@ const ai = new GoogleGenAI({
 
 | Endpoint | Model | Purpose |
 |----------|-------|---------|
-| `POST /api/generate-image` | `gemini-2.0-flash-exp` | Generate synthetic camera images |
-| `POST /api/analyze-image` | `gemini-2.5-flash` | Object detection with bounding boxes + narrative summary |
-| `POST /api/store-insights` | `gemini-2.5-flash` | Context-aware chat responses |
-| `POST /api/sustainability-report` | `gemini-2.5-flash` | Sustainability report from consumption data |
+| `POST /api/generate-image` | `gemini-3.1-flash-image-preview` | Generate synthetic camera images |
+| `POST /api/analyze-image` | `gemini-3-flash-preview` | Object detection with bounding boxes + narrative summary |
+| `POST /api/store-insights` | `gemini-3-flash-preview` | Context-aware chat responses |
+| `POST /api/sustainability-report` | `gemini-3-flash-preview` | Sustainability report from consumption data |
 
 ### `src/App.tsx`
 
